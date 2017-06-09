@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module>
+	<ModulePrefs title="Date Trending Chart" 
+		description="Produces a chart that displays a time-based line graph plotting a date from a selected field." 
+		author="Roger Delacruz">
+		<Require feature="setprefs" />
+		<Require feature="views" />
+		<Require feature="dynamic-height" />
+		<Optional feature="gadget-directory">
+		    <Param name="categories">
+		        JIRA
+		        Charts
+		    </Param>
+		</Optional>
+		
+		#supportedLocales("gadget.common")
+		#supportedLocales("gadget.pref.label")
+	</ModulePrefs>
+	<UserPref name="project" required="true" />
+	<UserPref name="issueType" required="true" />
+	<UserPref name="dateField" required="true" />
+	<UserPref name="incrementType" required="true" default_value="7" />
+	<UserPref name="dataRange" required="true" default_value="30" />
+	<UserPref name="isConfigured" datatype="hidden" default_value="false" />
+	<Content type="html" view="profile">
+		<![CDATA[
+	    	#requireResource("com.atlassian.gadgets.publisher:ajs-gadgets")
+	    	#requireResource("suite.conduentplugin:conduentplugin-resources")
+	    	#includeResources()
+	    
+        	<script>
+        		function pad(n, width, padChar) {
+					padChar = padChar || '0';
+					n = n + '';
+					return n.length >= width ? n : new Array(width - n.length + 1).join(padChar) + n;
+				}
+				
+				function getDateStr(dateObj) {
+					return dateObj.getFullYear() + "-" + pad(dateObj.getMonth() + 1, 2) + "-" + pad(dateObj.getDate(), 2);
+				}
+				
+				function generateChart(gadget, width, height, dateInterval, dataRange, countDict) {
+					// Loops through dates to get query parameters for dates and counts
+					var paramStr = ""
+					for (var date in countDict) {
+						paramStr += "&date=" + date + "&count=" + countDict[date];
+					}
+					
+					// Determines chart title
+					var days = gadget.getPref("dataRange");
+					var title = encodeURI(
+						getPrefLabel(gadget, "project") + ": Trend Over Last " + days + " Days"
+					);
+					
+					// Determines time axis label
+					var timeAxisLabel = encodeURI(
+						getPrefLabel(gadget, "dateField") + " Times"
+					);
+					
+					// Determines value axis label
+					var valueAxisLabel = encodeURI(
+						"Number of " + getPrefLabel(gadget, "issueType") + " Tickets"
+					);
+					
+					// Accesses REST API for chart generation
+					AJS.$.ajax({
+						url: "/rest/custom/1.0/charts/generate?width=" + width + "&height=" + height
+								+ "&dateInterval=" + dateInterval + "&dataRange=" + dataRange 
+								+ paramStr + "&title=" + title + "&timeAxisLabel=" + timeAxisLabel 
+								+ "&valueAxisLabel=" + valueAxisLabel,
+						type: "GET",
+						dataType: "json",
+						async: false,
+						success: function(data) {
+							populateView(gadget, data);
+						}
+					});
+				}
+				
+				function populateView(gadget, chartParam) {
+					// Creates top level table
+		            var htmlView = AJS.$("<table/>").attr({
+		            	width : "100%", class : "chart-container" 
+		            })
+		            
+		            // Sets URL accordingly, depending on whether base 64 image exists
+		            var chartUrl;
+		            if ("base64Image" in chartParam && chartParam.base64Image != null) {
+		            	chartUrl = chartParam.base64Image;
+		            } else {
+		            	chartUrl = gadget.getBaseUrl() + "/charts?filename=" + chartParam.location;
+		            }
+		            
+		            // Inserts rendered chart inside of the table
+		            htmlView.append(
+		            	AJS.$("<tr/>").append(
+		            		AJS.$("<td/>").append(
+		            			AJS.$("<p/>").attr({ class : "chart" }).append(
+		            				AJS.$("<img/>").attr({
+		            					src : chartUrl,
+		            					border : "0",
+		            					usemap : "#" + chartParam.imageMapName,
+		            					width : chartParam.width,
+		            					height : chartParam.height
+		            				})
+		            			)
+		            		)
+		            	)
+		            )
+		                        
+		            // Generates chart
+		            //var htmlView = AJS.$("<h1\>").text("");
+		            //htmlView = htmlView.add("<p><img src='" + chartParam.base64Image 
+		            //		+ "' border='0' usemap='#" + chartParam.imageMapName + "' width='" + chartParam.width +
+		            //		+ "' height='" + chartParam.height +"' /></p>");
+		                        
+	                gadget.getView().html(htmlView);
+				}
+				
+				function getPrefLabel(gadget, field) {
+					return gadget.getPref(field).split('|')[1];
+				}
+				
+				function getPrefValue(gadget, field) {
+					return gadget.getPref(field).split('|')[0];
+				}
+        	
+        		(function () {
+	                var gadget = AJS.Gadget({
+	                    baseUrl: "__ATLASSIAN_BASE_URL__",
+	                    useOauth: "/rest/gadget/1.0/currentUser",
+	                    config: {
+	                    	descriptor: function(args) {
+	                    		var gadget = this;
+	                    		
+	                    		// Loads project list from the REST API
+	                    		var projects = [];
+	                    		AJS.$(args.projects).each(function (i, element) {
+	                    			projects.push({
+	                    				label: element.name,
+	                    				value: element.key + "|" + element.name
+	                    			});
+		                        });
+		                        
+		                        // Loads issue type list from the REST API
+		                        var issuetypes = [];
+	                    		AJS.$(args.issuetypes).each(function (i, element) {
+	                    			issuetypes.push({
+	                    				label: element.name,
+	                    				value: element.id + "|" + element.name
+	                    			});
+		                        });
+		                        issuetypes.sort(function(a, b) {
+		                        	return a.label < b.label? -1 : (a.label > b.label? 1 : 0);
+		                        });
+		                        
+		                        // Loads date field list from the REST API
+		                        var datefields = [];
+	                    		AJS.$(args.datefields).each(function (i, element) {
+	                    			datefields.push({
+	                    				label: element.name,
+	                    				value: element.id + "|" + element.name
+	                    			});
+		                        });
+		                        datefields.sort(function(a, b) {
+		                        	return a.label < b.label? -1 : (a.label > b.label? 1 : 0);
+		                        });
+		                        
+	                    		return {
+	                    			theme: "long-label",
+	                    			fields: [
+	                    				{
+											userpref: "project",
+											type: "select",
+											label: "Project:",
+											options: projects,
+											selected: gadget.getPref("project")
+										},
+										{
+											userpref: "issueType",
+											type: "select",
+											label: "Issue Type:",
+											options: issuetypes,
+											selected: gadget.getPref("issueType")
+										},
+										{
+											userpref: "dateField",
+											type: "select",
+											label: "Date Field:",
+											options: datefields,
+											selected: gadget.getPref("dateField")
+										},
+										{
+											userpref: "incrementType",
+											type: "select",
+											label: "Increment Type:",
+											options: [
+												{label: "Daily", value: "1"},
+												{label: "Weekly", value: "7"},
+												{label: "Every 30 Days", value: "30"}
+											],
+											selected: gadget.getPref("incrementType")
+										},
+										{
+											userpref: "dataRange",
+											type: "select",
+											label: "Data Range:",
+											options: [
+												{label: "Last 7 Days", value: "7"},
+												{label: "Last 14 Days", value: "14"},
+												{label: "Last 30 Days", value: "30"},
+												{label: "Last 60 Days", value: "60"},
+												{label: "Last 90 Days", value: "90"},
+												{label: "Last 180 Days", value: "180"},
+												{label: "Last 365 Days", value: "365"}
+											],
+											selected: gadget.getPref("dataRange")
+										},
+										{
+											userpref: "isConfigured",
+											type: "hidden",
+											value: "true"
+										}
+	                    			]
+	                    		};
+	                    	},
+	                    	args: [
+	                    		{
+		                    		key: "projects",
+		                    		ajaxOptions: function() {
+			                            return {
+			                                url: "/rest/custom/1.0/projects/",
+			                                type: "GET",
+	                						dataType: "json"
+			                            };
+			                        }
+	                    		},
+	                    		{
+		                    		key: "issuetypes",
+		                    		ajaxOptions: function() {
+			                            return {
+			                                url: "/rest/api/2/issuetype/",
+			                                type: "GET",
+	                						dataType: "json"
+			                            };
+			                        }
+	                    		},
+	                    		{
+		                    		key: "datefields",
+		                    		ajaxOptions: function() {
+			                            return {
+			                                url: "/rest/custom/1.0/customfields/datefields/",
+			                                type: "GET",
+	                						dataType: "json"
+			                            };
+			                        }
+	                    		}
+	                    	]
+	                    },
+	                    view: {
+	                    	enableReload: true,
+						    onResizeReload: true,
+						    onResizeAdjustHeight: false,
+		                    template: function(args) {
+		                        var gadget = this;                      
+		                        
+		                        // Counts the number of tickets for each date for given field (removes time and gets millisecond time)
+		                        var countDict = { }
+		                        AJS.$(args.issues).each(function (i, element) {
+		                        	var dateObj = new Date(element.fields[getPrefValue(gadget, "dateField")]);
+		                        	var timeless = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), 0, 0, 0, 0) 
+		                        	var dateVal = timeless.getTime()
+		                        	if (dateVal in countDict) {
+		                        		countDict[dateVal] += 1;
+		                        	} else {
+		                        		countDict[dateVal] = 1;
+		                        	}
+		                        });
+		                        
+		                        // Calls REST API to generate chart and get necessary data to render it
+		                        var gadgetWidth = gadgets.window.getViewportDimensions().width;
+		                        generateChart(gadget, gadgetWidth, 300, gadget.getPref("incrementType"), gadget.getPref("dataRange"), countDict);
+		                    },
+		                    args: [
+		                    	{
+			                        key: "issues",
+			                        ajaxOptions: function() {
+			                        	var range = parseInt(this.getPref("dataRange"));
+			                        	var earliest = new Date((new Date()).setDate((new Date()).getDate() - range));
+										var dateStr = getDateStr(earliest);
+			                        
+			                            return {
+			                                url: "/rest/custom/1.0/issues?key=" + getPrefValue(this, "project")
+			                                		+ "&issueTypeId=" + getPrefValue(this, "issueType")
+			                                		+ "&dateFieldId=" + getPrefValue(this, "dateField")
+			                                		+ "&earliestDate=" + dateStr,
+			                                type: "GET",
+	                						dataType: "json"
+			                            };
+			                        }
+	                        	}
+	                        ]
+	                	}
+	                });
+        		})();
+            </script>
+	    
+	    <div id="content_div"></div>
+  		]]>
+  	</Content>
+</Module>
